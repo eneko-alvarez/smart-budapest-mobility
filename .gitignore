@@ -1,0 +1,22 @@
+# .gitignore
+
+# Entorno y variables sensibles
+.env
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
+
+# Logs y salidas pesadas
+*.log
+airflow/logs/
+
+# Checkpoints de Jupyter
+*.ipynb_checkpoints
+
+# Dependencias de Node.js
+node_modules/
+
+# Configuración de IDEs
+.vscode/
+.idea/

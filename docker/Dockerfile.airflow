@@ -1,0 +1,19 @@
+FROM apache/airflow:2.7.3-python3.11
+
+# Instala dependencias de sistema necesarias para compilar extensiones (psycopg2, etc.)
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Vuelve al usuario airflow
+USER airflow
+
+# Copia requirements desde el contexto de build
+COPY requirements.txt /requirements.txt
+
+# Instala dependencias Python
+RUN pip install --no-cache-dir -r /requirements.txt
