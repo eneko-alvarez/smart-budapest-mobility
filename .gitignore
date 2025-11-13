@@ -1,22 +1,24 @@
-# .gitignore
-
-# Entorno y variables sensibles
+# Archivos sensibles
 .env
+*.log
 
-# Archivos temporales de Python
+# Archivos de Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
-# Logs y salidas pesadas
-*.log
+# Logs de Airflow
 airflow/logs/
 
-# Checkpoints de Jupyter
-*.ipynb_checkpoints
-
-# Dependencias de Node.js
-node_modules/
-
-# Configuración de IDEs
+# Archivos de sistema
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
+
+# Volúmenes de Docker (no versionamos datos, solo código)
+postgres_data/
+superset_home/
+metabase_data/

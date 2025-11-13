@@ -93,23 +93,42 @@ services:
     networks:
       - bi_network
 
-  superset:
-    image: apache/superset:latest
-    container_name: bi_superset
-    environment:
-      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+  metabase:
+    image: metabase/metabase:latest
+    container_name: bi_metabase
     ports:
-      - "8088:8088"
+      - "3000:3000"
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: bi_user
+      MB_DB_PASS: bi_password_secure
+      MB_DB_HOST: postgres
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
     networks:
       - bi_network
+
+
+  # superset:
+  #   image: apache/superset:latest
+  #   container_name: bi_superset
+  #   environment:
+  #     SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+  #   ports:
+  #     - "8088:8088"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   networks:
+  #     - bi_network
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
 
 volumes:
   postgres_data:
