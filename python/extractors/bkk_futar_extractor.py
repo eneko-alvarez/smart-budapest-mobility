@@ -36,7 +36,7 @@ def extract_vehicles():
     print(f"✅ Fetched {len(vehicles)} vehicles")
     
     conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
+        host=os.getenv("DB_HOST", "bi_postgres"),
         port=int(os.getenv("DB_PORT", "5432")),
         user=os.getenv("DB_USER", "bi_user"),
         password=os.getenv("DB_PASSWORD", "bi_password_secure"),

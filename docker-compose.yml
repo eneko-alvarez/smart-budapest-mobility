@@ -59,6 +59,7 @@ services:
       - ./airflow/dags:/home/airflow/dags
       - ./airflow/logs:/home/airflow/logs
       - ./python:/home/airflow/python
+      - ./.env:/home/airflow/.env
     networks:
       - bi_network
 
@@ -90,6 +91,7 @@ services:
       - ./airflow/dags:/home/airflow/dags
       - ./airflow/logs:/home/airflow/logs
       - ./python:/home/airflow/python
+      - ./.env:/home/airflow/.env
     networks:
       - bi_network
 
