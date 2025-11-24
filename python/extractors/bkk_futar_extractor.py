@@ -82,9 +82,9 @@ def extract_vehicles():
                 
                 cur.execute("""
                     INSERT INTO staging.bkk_vehicles_raw 
-                    (vehicle_id, trip_id, route_id, latitude, longitude, bearing, speed, delay_seconds, timestamp, raw_data)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-                """, (vehicle_id, trip_id, route_id, lat, lon, bearing, speed, delay, timestamp, json.dumps(vehicle)))
+                    (vehicle_id, trip_id, route_id, latitude, longitude, bearing, speed, timestamp, raw_data)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """, (vehicle_id, trip_id, route_id, lat, lon, bearing, speed, timestamp, json.dumps(vehicle)))
                 inserted += 1
             except Exception as e:
                 print(f"⚠️ Error inserting vehicle: {e}")

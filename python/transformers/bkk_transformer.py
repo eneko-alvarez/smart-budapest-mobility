@@ -50,7 +50,7 @@ def transform_bkk_to_dwh():
             """
             INSERT INTO dwh.fact_transport_usage (
                 time_key, route_key, stop_key, trip_id, vehicle_id,
-                delay_seconds, occupancy_pct, events_count
+                occupancy_pct, events_count
             )
             SELECT 
                 t.time_key,
@@ -70,7 +70,6 @@ def transform_bkk_to_dwh():
                 ) AS stop_key,
                 v.trip_id,
                 v.vehicle_id,
-                COALESCE(v.delay_seconds, 0) AS delay_seconds,
                 NULL AS occupancy_pct,
                 1 AS events_count
             FROM staging.bkk_vehicles_raw v

@@ -4,6 +4,9 @@ data/*.zip
 data/*.json
 data/*.csv
 
+# ML Models
+models/
+
 # Python cache
 __pycache__/
 *.pyc
