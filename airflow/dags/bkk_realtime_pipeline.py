@@ -16,7 +16,7 @@ with DAG(
     description='Real-time BKK transport data ingestion (every 10 min)',
     schedule_interval='*/10 * * * *',  # Cada 10 minutos
     start_date=datetime(2025, 11, 15),
-    catchup=False,
+    catchup=False,  # No ejecutar runs pasados después de suspensión
     tags=['bkk', 'transport', 'realtime'],
 ) as dag:
 

@@ -14,6 +14,7 @@ def calculate_and_load_kpi_daily(days_back=7):
     """
     Calcula KPIs diarios de clima agregando fact_weather_conditions por fecha.
     Inserta una fila por cada métrica (avg_temp_day, total_precip_day, wind_speed_avg_day).
+    Usa DELETE + INSERT para evitar problemas con ON CONFLICT y NULL values.
     """
     conn = psycopg2.connect(
         host=os.getenv("DB_HOST", "localhost"),
@@ -24,6 +25,14 @@ def calculate_and_load_kpi_daily(days_back=7):
     )
     
     with conn, conn.cursor() as cur:
+        # Primero, eliminar todos los registros de weather KPIs de los últimos N días
+        cur.execute("""
+            DELETE FROM dwh.kpi_daily
+            WHERE route_key IS NULL 
+              AND stop_key IS NULL
+              AND kpi_date >= current_date - interval '%s days';
+        """, (days_back,))
+        
         # Calcula avg_temp_day
         cur.execute("""
             INSERT INTO dwh.kpi_daily (kpi_date, metric_name, metric_value)
@@ -34,11 +43,7 @@ def calculate_and_load_kpi_daily(days_back=7):
             FROM dwh.fact_weather_conditions fw
             JOIN dwh.dim_time dt ON fw.time_key = dt.time_key
             WHERE dt.date >= current_date - interval '%s days'
-            GROUP BY dt.date
-            ON CONFLICT (kpi_date, route_key, stop_key, metric_name)
-            DO UPDATE SET
-                metric_value = EXCLUDED.metric_value,
-                computed_at = now();
+            GROUP BY dt.date;
         """, (days_back,))
         
         # Calcula total_precip_day
@@ -51,11 +56,7 @@ def calculate_and_load_kpi_daily(days_back=7):
             FROM dwh.fact_weather_conditions fw
             JOIN dwh.dim_time dt ON fw.time_key = dt.time_key
             WHERE dt.date >= current_date - interval '%s days'
-            GROUP BY dt.date
-            ON CONFLICT (kpi_date, route_key, stop_key, metric_name)
-            DO UPDATE SET
-                metric_value = EXCLUDED.metric_value,
-                computed_at = now();
+            GROUP BY dt.date;
         """, (days_back,))
         
         # Calcula wind_speed_avg_day
@@ -68,11 +69,7 @@ def calculate_and_load_kpi_daily(days_back=7):
             FROM dwh.fact_weather_conditions fw
             JOIN dwh.dim_time dt ON fw.time_key = dt.time_key
             WHERE dt.date >= current_date - interval '%s days'
-            GROUP BY dt.date
-            ON CONFLICT (kpi_date, route_key, stop_key, metric_name)
-            DO UPDATE SET
-                metric_value = EXCLUDED.metric_value,
-                computed_at = now();
+            GROUP BY dt.date;
         """, (days_back,))
         
         print(f"[INFO] KPI daily: weather metrics processed for last {days_back} days")

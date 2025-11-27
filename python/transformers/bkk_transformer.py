@@ -77,7 +77,7 @@ def transform_bkk_to_dwh():
               ON t.date = v.recorded_at::date
              AND t.hour = EXTRACT(HOUR FROM v.recorded_at)
             LEFT JOIN dwh.dim_route r 
-              ON r.route_id = v.route_id
+              ON r.route_id = REPLACE(v.route_id, 'BKK_', '')
             WHERE v.latitude IS NOT NULL 
               AND v.longitude IS NOT NULL
               -- Por seguridad, exige que exista route_key para poder insertar
