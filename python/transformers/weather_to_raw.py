@@ -54,7 +54,6 @@ def upsert_weather_from_staging(batch_limit=200):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, 'OPEN_METEO')
                 """, ('BUDAPEST', temperature, humidity, wind_speed, precipitation, weather_code, recorded_at))
                 inserted += 1
-                print("[INFO] Successfully inserted to raw.weather_observations")
             except Exception as e:
                 pass
         return inserted

@@ -15,6 +15,7 @@ A comprehensive Business Intelligence system that integrates real-time public tr
 - [Data Warehouse Schema](#data-warehouse-schema)
 - [ETL Pipelines](#etl-pipelines)
 - [Dashboards & KPIs](#dashboards--kpis)
+- [Machine Learning](#machine-learning)
 - [Known Limitations](#known-limitations)
 - [Troubleshooting](#troubleshooting)
 
@@ -65,12 +66,12 @@ This project implements a complete data analytics pipeline to process and visual
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **Data Warehouse** | PostgreSQL 16 | Dimensional data storage |
+| **Data Warehouse** | TimescaleDB (PostgreSQL 15) | Time-series optimized data storage |
 | **Orchestration** | Apache Airflow 2.7 | ETL scheduling and monitoring |
 | **Visualization** | Metabase Latest | Business intelligence dashboards |
 | **ETL Language** | Python 3.11 | Data extraction and transformation |
 | **Containerization** | Docker + Docker Compose | Infrastructure as code |
-| **Libraries** | psycopg2, requests, python-dotenv | Database and API connectivity |
+| **Libraries** | psycopg2, requests, pandas, pytest | Database, API, data processing, and testing |
 
 ---
 
@@ -166,12 +167,12 @@ smart-budapest-mobility/
 │   ├── dags/
 │   │   ├── bkk_realtime_pipeline.py    # ETL pipeline for BKK Futár real-time transport data
 │   │   ├── kpi_daily_dag.py            # Daily KPIs aggregation pipeline
-│   │   └── weather_pipeline_dag.py    # Hourly weather data pipeline
-│   └── logs/                          # Execution logs for Airflow DAGs
+│   │   └── weather_pipeline_dag.py     # Hourly weather data pipeline
+│   └── logs/                           # Execution logs for Airflow DAGs
 │
-├── data/                              # Static and downloaded datasets
-│   ├── budapest_gtfs.zip              # Compressed full Budapest GTFS feed
-│   └── gtfs/                         # Decompressed GTFS files (routes, stops, etc.)
+├── data/                               # Static and downloaded datasets
+│   ├── budapest_gtfs.zip               # Compressed full Budapest GTFS feed
+│   └── gtfs/                          # Decompressed GTFS files (routes, stops, etc.)
 │       ├── agency.txt                 
 │       ├── calendar_dates.txt
 │       ├── feed_info.txt
@@ -182,49 +183,50 @@ smart-budapest-mobility/
 │       ├── stop_times.txt
 │       └── trips.txt
 │
-├── docker/                           # Dockerfiles and base requirements
-│   ├── Dockerfile.airflow            # Custom Airflow image definition
-│   └── requirements.txt              # Base Python dependencies
+├── docker/                            # Dockerfiles and base requirements
+│   ├── Dockerfile.airflow             # Custom Airflow image definition
+│   └── requirements.txt               # Python dependencies for Airflow container
 │
-├── docs/                            # Additional documentation and diagrams (PDFs, images)
+├── docs/                              # Additional documentation and diagrams
 │
-├── python/                          # Main python code split by function
-│   ├── extractors/                  # API and file data extractors
-│   │   ├── bkk_futar_extractor.py
-│   │   ├── gtfs_loader.py
-│   │   └── weather_extractor.py
-│   ├── ml/                         # Machine learning code or placeholders for advanced features
-│   ├── transformers/               # Data cleansing, transformation, and loading scripts
-│   │   ├── bkk_transformer.py
-│   │   ├── daily_kpi_transformer.py
-│   │   ├── dim_time_loader.py
-│   │   ├── gtfs_transformer.py
-│   │   ├── kpi_daily_loader.py
-│   │   ├── weather_raw_loader.py
-│   │   ├── weather_to_fact.py
-│   │   └── weather_to_raw.py
-│   ├── utils/                      # Utility scripts (connection checks, etc.)
-│   │   └── check_connectivity.py
-│   ├── validators/                # Custom validation scripts if any
+├── logs/                              # Application logs
 │
-├── sql/                           # SQL scripts for DB schema and config setup
-│   ├── 001_create_schemas.sql
-│   ├── 002_create_staging.sql
-│   ├── 003_create_raw.sql
-│   ├── 004_create_dwh.sql
-│   └── 005_policies_and_indexes.sql  # Partition policies and optimization indexes
+├── models/                            # ML model artifacts (currently empty - future work)
 │
-├── .env                           # Environment variables file (API keys hidden on sharing)
-├── .env.example                   # Template for environment variables
-├── .gitignore                    # Git ignore configuration
-├── docker-compose.yml             # Docker service definitions (PostgreSQL, Airflow, Metabase)
-├── requirements.txt              # Python dependencies general
-├── backups/                      # Manual backups of DB, Metabase, environment
-│   ├── *.dump
-│   ├── *.backup
-│   └── env_backup
+├── python/                            # Main Python codebase
+│   ├── extractors/                    # API and file data extractors
+│   │   ├── bkk_futar_extractor.py    # BKK Futár API real-time data extraction
+│   │   ├── gtfs_loader.py            # GTFS static data loader
+│   │   └── weather_extractor.py      # OpenWeatherMap API extraction
+│   ├── ml/                           # Machine learning modules (incomplete - see limitations)
+│   │   ├── predict_transport_demand.py  # Demand prediction (requires more data)
+│   │   └── train_demand_forecast.py     # Model training scripts
+│   ├── transformers/                 # Data transformation and loading
+│   │   ├── bkk_transformer.py        # Transform BKK data to DWH format
+│   │   ├── daily_kpi_transformer.py  # Calculate daily KPIs
+│   │   ├── dim_time_loader.py        # Populate time dimension
+│   │   ├── gtfs_transformer.py       # Transform GTFS to dimensions
+│   │   ├── kpi_daily_loader.py       # Load daily KPIs to DWH
+│   │   ├── weather_raw_loader.py     # Load weather to staging
+│   │   ├── weather_to_fact.py        # Transform weather to fact table
+│   │   └── weather_to_raw.py         # Weather staging transformation
+│   └── utils/                        # Utility scripts
+│       └── check_connectivity.py     # Database connection verification
 │
-└── README.md           
+├── sql/                                      # SQL scripts for database initialization
+│   ├── 001_create_schemas.sql               # Create schemas (staging, raw, dwh, metadata)
+│   ├── 002_create_staging.sql               # Staging tables with TimescaleDB hypertables
+│   ├── 003_create_raw.sql                   # Raw data tables with retention policies
+│   ├── 004_create_dwh.sql                   # Data warehouse star schema (dims + facts)
+│   ├── 005_create_fact_route_performance.sql # Route performance fact table
+│   └── 005_policies_and_indexes.sql         # Retention policies and performance indexes
+│
+├── .env                              # Environment variables (API keys, DB credentials)
+├── .env.example                      # Template for environment variables
+├── .gitignore                        # Git ignore configuration
+├── docker-compose.yml                # Docker services: TimescaleDB, Airflow, Metabase
+├── requirements.txt                  # Python dependencies
+└── README.md                         # This file           
 ```
 
 ---
@@ -234,9 +236,11 @@ smart-budapest-mobility/
 ### Star Schema Design
 
 **Fact Tables:**
-- `fact_transport_usage` - Vehicle events with delays, route, time
+- `fact_transport_usage` - Vehicle events with delays, routes, and time (real-time data)
 - `fact_weather_conditions` - Hourly weather observations
-- `fact_route_performance` - Daily aggregated KPIs by route
+- `fact_route_performance` - Daily aggregated KPIs by route (trips, unique vehicles)
+- `kpi_daily` - Daily metrics aggregation table
+- `correlation_results` - Weather-transport correlation analysis results
 
 **Dimension Tables:**
 - `dim_time` - Date/hour hierarchy
@@ -270,115 +274,222 @@ fact_route_performance
 **DAG ID:** `bkk_realtime_pipeline`
 
 **Steps:**
-1. **Extract:** Fetch vehicle positions from BKK Futár API
-2. **Load to Staging:** Insert raw JSON into `staging.bkk_vehicles_raw`
-3. **Transform:** 
-   - Parse JSON fields (lat, lon, bearing, delay)
-   - Match route_id to `dim_route`
-   - Create time_key (hourly granularity)
+1. **Extract:** Fetch vehicle positions from BKK Futár API (`bkk_futar_extractor.py`)
+2. **Load to Staging:** Insert raw JSON into `staging.bkk_futar_raw` (TimescaleDB hypertable)
+3. **Transform:** (`bkk_transformer.py`)
+   - Parse JSON fields (latitude, longitude, bearing, delay, speed)
+   - Strip `BKK_` prefix from route_id for matching
+   - Match route_id to `dim_route.route_key`
+   - Create time_key (hourly granularity) from timestamp
+   - Calculate speed in km/h from vehicle data
 4. **Load to DWH:** Insert into `fact_transport_usage`
-5. **Cleanup:** Truncate staging table
+5. **Cleanup:** Automatic retention policy (7 days for staging)
 
-**Output:** ~850 records per execution
+**Output:** ~850 vehicle records per execution  
+**Data Retention:** Staging data retained for 7 days, DWH data indefinitely
 
 ---
 
 ### 2. Weather Hourly Pipeline
-**Schedule:** Hourly (on the hour)  
-**DAG ID:** `weather_hourly_pipeline`
+**Schedule:** Hourly (at minute 0)  
+**DAG ID:** `weather_pipeline_dag`
 
 **Steps:**
-1. **Extract:** Call OpenWeatherMap API for Budapest
-2. **Load to Staging:** Insert raw JSON into `staging.weather_raw`
-3. **Transform:**
-   - Extract temperature, humidity, wind speed
-   - Map weather code to `dim_weather_type`
+1. **Extract:** Call OpenWeatherMap API for Budapest coordinates (`weather_extractor.py`)
+2. **Load to Staging:** Insert raw JSON into `staging.weather_raw` (TimescaleDB hypertable)
+3. **Transform:** (`weather_to_raw.py`, `weather_to_fact.py`)
+   - Extract temperature (°C), humidity (%), wind speed (m/s)
+   - Map weather code to `dim_weather_type.weather_key`
    - Create time_key for current hour
 4. **Load to DWH:** Insert into `fact_weather_conditions`
 
-**Output:** 1 record per execution
+**Output:** 1 weather record per execution  
+**Data Retention:** Staging 7 days, raw 180 days
 
 ---
 
 ### 3. Daily KPI Aggregation
 **Schedule:** Daily at 1:00 AM  
-**DAG ID:** `daily_kpi_aggregation`
+**DAG ID:** `kpi_daily_dag`
 
 **Steps:**
-1. **Aggregate:** Query `fact_transport_usage` for previous day
+1. **Aggregate:** Query `fact_transport_usage` for previous day (`daily_kpi_transformer.py`)
 2. **Calculate KPIs:**
    - Total trips per route
-   - Unique vehicles
-   - Average delay (seconds)
+   - Unique vehicles per route
+   - Average delay (seconds) - currently ~0 for Budapest
    - Total delay (seconds)
-3. **Load:** Insert into `fact_route_performance`
+3. **Load:** Insert into `fact_route_performance` and `dwh.kpi_daily`
 
-**Output:** ~180 route-day combinations
+**Output:** ~180 route-day combinations  
+**Deduplication:** Uses `ON CONFLICT` to prevent duplicate daily records
 
 ---
 
 ## 📈 Dashboards & KPIs
 
-### Dashboard 1: Weather Overview
-**Purpose:** Monitor environmental conditions  
+The project includes three comprehensive Metabase dashboards for real-time analytics:
+
+### Dashboard 1: Weather Overview 🌤️
+**Purpose:** Monitor Budapest's environmental conditions and trends  
 **Refresh:** Hourly
 
-**Visualizations:**
-1. Temperature trends (line chart) - Last 7 days
-2. Weather conditions distribution (pie chart)
-3. Humidity vs Temperature correlation (scatter plot)
-4. Wind speed analysis (bar chart)
+**Key Visualizations:**
+1. **Current Weather Conditions** - Real-time temperature, humidity, wind speed
+2. **Temperature Trends** - Line chart showing temperature evolution over time
+3. **Weather Distribution** - Pie chart of weather condition types (Clear, Clouds, Rain, etc.)
+4. **Humidity Analysis** - Humidity percentage trends
+5. **Wind Speed Patterns** - Wind speed variations throughout the day
+
+**Data Source:** `dwh.fact_weather_conditions` joined with `dim_weather_type` and `dim_time`
 
 ---
 
-### Dashboard 2: Real-Time Transport Performance
-**Purpose:** Monitor fleet status and route efficiency  
+### Dashboard 2: Real-Time Transport Performance 🚍
+**Purpose:** Monitor Budapest's public transport fleet and route efficiency  
 **Refresh:** Every 10 minutes
 
-**Visualizations:**
-1. Active Vehicles by Hour (line chart)
-2. Top 10 Most Used Routes (bar chart)
-3. Average Delay by Route Type (bar chart)
-4. Most Active Routes Today (bar chart)
-5. Active Vehicles Now (KPI card)
+**Key Visualizations:**
+1. **Active Vehicles Now** - KPI card showing current fleet size
+2. **Active Routes Today** - Number of routes currently operating
+3. **Vehicles by Hour** - Line chart showing fleet distribution throughout the day
+4. **Top 10 Most Active Routes** - Bar chart of routes with most vehicles
+5. **Route Type Distribution** - Breakdown by bus, tram, metro, etc.
+6. **Vehicle Speed Analysis** - Average speed by route and time
+7. **Delay Analysis** - Average delay in seconds (typically near 0 for Budapest)
 
 **Key Metrics:**
-- Average delay: ~0 minutes (Budapest has efficient transport)
+- Active vehicles: ~850 vehicles at peak times
 - Active routes: ~180 routes/day
-- Peak hours: 7-9 AM, 4-7 PM
+- Average delay: ~0 seconds (Budapest has highly efficient transport)
+- Peak hours: 7-9 AM, 4-7 PM weekdays
+
+**Data Source:** `dwh.fact_transport_usage` joined with `dim_route` and `dim_time`
 
 ---
 
-### Dashboard 3: Transport-Weather Correlation
-**Purpose:** Analyze impact of weather on transport  
+### Dashboard 3: Transport-Weather Correlation 🌡️🚌
+**Purpose:** Analyze the relationship between weather conditions and transport usage  
 **Refresh:** Hourly
 
-**Visualizations:**
-1. Transport Usage vs Temperature (dual-axis line chart)
-2. Most Active Hours of Day (line chart)
-3. Daily Transport Trends (multi-line chart)
+**Key Visualizations:**
+1. **Transport Usage vs Temperature** - Dual-axis line chart correlating vehicle count with temperature
+2. **Hourly Activity Patterns** - Transport usage distribution by hour of day
+3. **Daily Transport Trends** - Multi-day comparison of transport activity
+4. **Weather Impact on Routes** - Route performance under different weather conditions
+5. **Weekly Patterns** - Weekday vs weekend transport usage
 
-**Note:** Limited correlation data due to weather dataset size.
+**Insights:**
+- Transport usage peaks during rush hours regardless of weather
+- Slight increase in vehicle count during adverse weather conditions
+- Weekend patterns show different peak times (10 AM - 8 PM)
+
+**Data Source:** Combined queries from `fact_transport_usage`, `fact_weather_conditions`, and dimension tables
+
+**Note:** Correlation analysis is limited by weather data collection period. More historical data will improve insights over time.
+
+---
+
+---
+
+## 🤖 Machine Learning
+
+### Current Status: Incomplete ⚠️
+
+The project includes a Machine Learning module structure (`python/ml/`) with planned predictive analytics features. However, **ML models are not yet fully implemented** due to insufficient training data.
+
+### Planned Features
+
+#### 1. Transport Demand Forecasting
+**Goal:** Predict vehicle demand by route based on historical patterns, weather, and time factors
+
+**Approach:**
+- Time series forecasting using historical `fact_transport_usage` data
+- Feature engineering: hour of day, day of week, weather conditions, holidays
+- Models: ARIMA, Prophet, or LSTM for seasonal patterns
+
+**Requirements:** Minimum 6-12 months of data for seasonal pattern recognition
+
+#### 2. "Cursed Routes" Prediction
+**Goal:** Identify routes likely to experience congestion or delays
+
+**Approach:**
+- Classification model to predict high-delay routes
+- Features: weather conditions, time of day, historical speed data
+- Output: Risk score for each route-time combination
+
+**Requirements:** Sufficient delay variance in data (currently Budapest has minimal delays)
+
+#### 3. Weather-Transport Correlation Analysis
+**Goal:** Quantify the impact of weather on transport usage
+
+**Approach:**
+- Statistical correlation analysis (Pearson, Spearman)
+- Regression models to predict usage changes based on weather
+- Store results in `dwh.correlation_results` table
+
+**Requirements:** Aligned weather and transport data for same time periods
+
+### Why ML is Incomplete
+
+1. **Insufficient Data Volume:** Only ~2-3 weeks of data collected; ML models need 6-12 months
+2. **Limited Weather Coverage:** Weather data collection started later than transport data
+3. **Low Delay Variance:** Budapest's efficient transport system has minimal delays (~0 seconds average), making delay prediction less meaningful
+4. **Seasonal Patterns Missing:** Need full year of data to capture seasonal trends (summer vs winter usage)
+
+### Code Structure
+
+```
+python/ml/
+├── train_demand_forecast.py     # Model training pipeline (placeholder)
+└── predict_transport_demand.py  # Prediction inference (placeholder)
+```
+
+### Future Work
+
+Once sufficient data is collected (target: 12 months), the following steps will be taken:
+
+1. **Data Preparation:** Create ML-ready datasets with engineered features
+2. **Model Training:** Train and validate forecasting models
+3. **Model Deployment:** Integrate predictions into Airflow DAGs
+4. **Dashboard Integration:** Add prediction visualizations to Metabase
+5. **Continuous Learning:** Implement model retraining pipeline
+
+**Estimated Timeline:** 6-12 months of data collection required before ML implementation
 
 ---
 
 ## ⚠️ Known Limitations
 
 ### 1. Stop Key Null Values
-**Issue:** `fact_transport_usage.stop_key` is NULL for all records 
+**Issue:** `fact_transport_usage.stop_key` is NULL for all records  
 **Cause:** BKK Futár API does not provide `stop_id` for vehicles in motion  
 **Impact:** Cannot analyze performance by specific bus stops  
-**Workaround:** Use route-level aggregations instead
+**Workaround:** Use route-level aggregations instead  
+**Status:** API limitation - cannot be resolved without additional data source
 
-### 2. Limited Weather Data
-**Issue:** Only 25 hours of weather data vs 949 hours of transport data  
+### 2. Limited Weather Data for ML
+**Issue:** Insufficient historical weather data for robust correlation analysis  
 **Cause:** Weather pipeline started later than transport pipeline  
-**Impact:** Limited correlation analysis between weather and delays  
-**Solution:** Wait for more historical data to accumulate
+**Impact:** Limited statistical significance in weather-transport correlations  
+**Solution:** Continue data collection; ML models require minimum 6-12 months of data  
+**Current Status:** Ongoing data collection
 
-### 3. Route Names Empty
-**Status:** RESOLVED  
-**Fix:** Populated `dim_route.route_name` with `route_id` values
+### 3. Machine Learning Module Incomplete
+**Issue:** ML prediction models not fully implemented  
+**Cause:** Insufficient training data (need minimum 6 months for seasonal patterns)  
+**Impact:** Cannot predict transport demand or identify "cursed routes" yet  
+**Planned Features:**
+  - Demand forecasting based on weather and time
+  - Route congestion prediction
+  - Anomaly detection for delays
+**Status:** Code structure in place (`python/ml/`), awaiting sufficient data
+
+### 4. Redis Service Unused
+**Issue:** Redis container runs but is not used by the application  
+**Cause:** Originally planned for caching but not implemented  
+**Impact:** Minor resource overhead (~50MB RAM)  
+**Status:** Can be removed from `docker-compose.yml` if needed
 
 ---
 
