@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 
 # === Paths base del proyecto ===
 ROOT = Path(__file__).resolve().parents[2]  # raíz del repo
-MODELS_DIR = ROOT / "models"
+# En Docker, models no está montado en root, así que usamos una copia en python/models
+MODELS_DIR = ROOT / "python" / "models"
 MODEL_PATH = MODELS_DIR / "demand_forecast_rf_v2.pkl"
 ROUTE_MAPPING_PATH = MODELS_DIR / "route_mapping.pkl"
 
@@ -24,8 +25,9 @@ load_dotenv(ROOT / ".env")
 
 def get_connection():
     host = os.getenv("DB_HOST", "localhost")
-    # Truco: si estamos fuera de Docker y el host es bi_postgres, usar localhost
-    if host == "bi_postgres":
+    # Truco: si estamos en Windows (local) y el host es bi_postgres, usar localhost
+    # En Linux (Docker), bi_postgres es correcto y accesible
+    if os.name == 'nt' and host == "bi_postgres":
         host = "localhost"
 
     return psycopg2.connect(
@@ -49,56 +51,96 @@ def load_model_and_mapping():
 
 def build_features_for_date(conn, target_date, route_mapping):
     """
-    Construye el dataframe de features para una fecha concreta (target_date)
-    usando histórico de fact_route_performance + dim_route + dim_time + clima.
+    Construye el dataframe de features para una fecha futura (target_date)
+    usando promedios históricos de días similares (mismo día de semana, misma hora).
     """
-    query = """
+    print(f"Building features for prediction date: {target_date}")
+    
+    # Get historical averages for each route, day_of_week, and hour
+    # Using last 4 weeks of data for similar days
+    historical_query = """
+        WITH target_info AS (
+            SELECT 
+                %s::date as target_date,
+                EXTRACT(DOW FROM %s::date)::smallint as target_dow,
+                CASE WHEN EXTRACT(DOW FROM %s::date) IN (0, 6) THEN 1 ELSE 0 END as is_weekend,
+                EXTRACT(MONTH FROM %s::date)::smallint as month
+        ),
+        historical_patterns AS (
+            SELECT 
+                r.route_id,
+                t.hour,
+                t.day_of_week,
+                AVG(rp.unique_vehicles) as avg_unique_vehicles,
+                AVG(rp.avg_delay_seconds) as avg_delay_seconds,
+                COUNT(*) as sample_count
+            FROM dwh.fact_route_performance rp
+            JOIN dwh.dim_time t ON rp.time_key = t.time_key
+            JOIN dwh.dim_route r ON rp.route_key = r.route_key
+            CROSS JOIN target_info ti
+            WHERE t.date >= ti.target_date - INTERVAL '28 days'
+              AND t.date < ti.target_date
+              AND t.day_of_week = ti.target_dow
+            GROUP BY r.route_id, t.hour, t.day_of_week
+            HAVING COUNT(*) >= 1  -- At least 1 sample
+        ),
+        weather_forecast AS (
+            SELECT 
+                t.hour,
+                COALESCE(AVG(w.temperature_c), 10) as temperature_c,
+                COALESCE(AVG(w.humidity_pct), 70) as humidity_pct,
+                COALESCE(AVG(w.wind_speed_ms), 5) as wind_speed_ms,
+                COALESCE(AVG(w.precipitation_mm), 0) as precipitation_mm
+            FROM dwh.fact_weather_conditions w
+            JOIN dwh.dim_time t ON w.time_key = t.time_key
+            CROSS JOIN target_info ti
+            WHERE t.date >= ti.target_date - INTERVAL '7 days'
+              AND t.date < ti.target_date
+            GROUP BY t.hour
+        )
         SELECT 
-          t.date, 
-          r.route_id, 
-          SUM(rp.total_trips)              AS total_trips,
-          SUM(rp.unique_vehicles)          AS unique_vehicles,
-          COALESCE(AVG(w.temperature_c), 0)    AS temperature_c, 
-          COALESCE(AVG(w.humidity_pct), 0)     AS humidity_pct,
-          COALESCE(AVG(w.wind_speed_ms), 0)    AS wind_speed_ms,
-          COALESCE(SUM(w.precipitation_mm), 0) AS precipitation_mm,
-          MAX(t.day_of_week)               AS day_of_week, 
-          BOOL_OR(t.is_holiday)            AS is_holiday
-        FROM dwh.fact_route_performance rp
-        JOIN dwh.dim_time  t ON rp.time_key  = t.time_key
-        JOIN dwh.dim_route r ON rp.route_key = r.route_key
-        LEFT JOIN dwh.fact_weather_conditions w 
-              ON rp.time_key = w.time_key
-        WHERE t.date = %s
-        GROUP BY t.date, r.route_id
-        ORDER BY t.date, r.route_id;
+            ti.target_date as date,
+            hours.hour,
+            ti.target_dow as day_of_week,
+            ti.is_weekend,
+            0 as is_holiday,
+            ti.month,
+            hp.route_id,
+            COALESCE(hp.avg_unique_vehicles, 5) as unique_vehicles,
+            COALESCE(hp.avg_delay_seconds, 0) as avg_delay_seconds,
+            COALESCE(wf.temperature_c, 10) as temperature_c,
+            COALESCE(wf.humidity_pct, 70) as humidity_pct,
+            COALESCE(wf.wind_speed_ms, 5) as wind_speed_ms,
+            COALESCE(wf.precipitation_mm, 0) as precipitation_mm
+        FROM target_info ti
+        CROSS JOIN generate_series(0, 23) as hours(hour)
+        CROSS JOIN (
+            SELECT DISTINCT route_id 
+            FROM dwh.dim_route 
+            WHERE route_id != 'UNKNOWN'
+        ) routes
+        LEFT JOIN historical_patterns hp 
+            ON routes.route_id = hp.route_id 
+            AND hours.hour = hp.hour
+        LEFT JOIN weather_forecast wf ON hours.hour = wf.hour
+        WHERE hp.route_id IS NOT NULL  -- Only routes with historical data
+        ORDER BY hours.hour, routes.route_id;
     """
-
-
-    df = pd.read_sql(query, conn, params=[target_date])
-
-    if df.empty:
-        print(f"⚠ No hay datos históricos en fact_route_performance para {target_date}")
-        return df
-
-    # Asegurar tipos
-    df["route_id"] = df["route_id"].astype(str)
-
-    # Mapear route_id -> route_code usando el mapping del entrenamiento
-    df["route_code"] = df["route_id"].map(route_mapping)
-    df["route_code"] = df["route_code"].fillna(-1).astype(int)
-
-    # Preprocesamiento básico
-    df = df.copy()
-    df.fillna(0, inplace=True)
-
-    # Limpiar 'total_trips' por si acaso
-    df["total_trips"] = (
-        df["total_trips"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-        .astype(float)
+    
+    print("Executing historical pattern query...")
+    df = pd.read_sql(
+        historical_query, 
+        conn, 
+        params=[target_date, target_date, target_date, target_date]
     )
+    
+    if df.empty:
+        print(f"⚠ No historical patterns found for day_of_week matching {target_date}")
+        return df
+    
+    print(f"✓ Generated {len(df):,} prediction records")
+    print(f"✓ Unique routes: {df['route_id'].nunique()}")
+    print(f"✓ Hours covered: {df['hour'].nunique()}")
 
     return df
 
@@ -108,16 +150,31 @@ def predict_for_date(conn, target_date, model, route_mapping):
 
     if df.empty:
         return 0
+    
+    # Asegurar tipos
+    df["route_id"] = df["route_id"].astype(str)
+    
+    # Mapear route_id -> route_code usando el mapping del entrenamiento
+    df["route_code"] = df["route_id"].map(route_mapping)
+    df["route_code"] = df["route_code"].fillna(-1).astype(int)
+    
+    # Preprocesamiento básico
+    df = df.copy()
+    df.fillna(0, inplace=True)
 
     feature_cols = [
         "route_code",
+        "hour",
+        "day_of_week",
+        "is_weekend",
+        "is_holiday",
+        "month",
         "unique_vehicles",
+        "avg_delay_seconds",
         "temperature_c",
         "humidity_pct",
         "wind_speed_ms",
         "precipitation_mm",
-        "day_of_week",
-        "is_holiday",
     ]
 
     missing = [c for c in feature_cols if c not in df.columns]
@@ -134,10 +191,10 @@ def predict_for_date(conn, target_date, model, route_mapping):
     cursor = conn.cursor()
     insert_sql = """
         INSERT INTO dwh.fact_route_predictions (
-            date, route_id, predicted_trips, model_version
+            date, route_id, hour, predicted_trips, model_version
         )
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT ON CONSTRAINT uq_fact_route_predictions_date_route DO UPDATE
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT ON CONSTRAINT uq_fact_route_predictions_date_route_hour DO UPDATE
         SET predicted_trips = EXCLUDED.predicted_trips,
             model_version   = EXCLUDED.model_version;
     """
@@ -149,10 +206,11 @@ def predict_for_date(conn, target_date, model, route_mapping):
     for _, row in df.iterrows():
         cursor.execute(
             insert_sql,
-            (row["date"], row["route_id"], int(row["predicted_trips"]), model_version),
+            (row["date"], row["route_id"], int(row["hour"]), int(row["predicted_trips"]), model_version),
         )
         rows += 1
-        print(f"    Inserting ({rows})")
+        if rows % 500 == 0:  # Print every 500 rows to reduce output
+            print(f"    Inserted {rows} predictions...")
 
     conn.commit()
     cursor.close()
@@ -162,8 +220,8 @@ def predict_for_date(conn, target_date, model, route_mapping):
 
 
 def main():
-    # Fecha objetivo: mañana
-    target_date = date(2025, 11, 16)
+    # Fecha objetivo: mañana (calculado automáticamente)
+    target_date = date.today() + timedelta(days=1)
     print(f"Fecha objetivo de predicción: {target_date}")
 
     conn = get_connection()

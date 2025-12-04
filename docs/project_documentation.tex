@@ -1,0 +1,251 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+
+% Page geometry - margins ajustados para maximizar espacio
+\geometry{
+    a4paper,
+    left=2cm,
+    right=2cm,
+    top=2.5cm,
+    bottom=2.5cm
+}
+
+% Colors
+\definecolor{primaryblue}{rgb}{0.1,0.3,0.6}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primaryblue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Smart Budapest Mobility Analytics Platform},
+    pdfauthor={Eneko Alvarez},
+}
+
+% Header and footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Smart Budapest Mobility Analytics Platform}
+\fancyhead[R]{\small BI Project}
+\fancyfoot[C]{\thepage}
+
+% Title formatting - más compacto
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{primaryblue}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}{\thesubsection}{1em}{}
+
+% Reducir espaciado
+\setlength{\parskip}{0.3em}
+\setlist{noitemsep, topsep=0pt}
+
+% Document metadata
+\title{
+    \vspace{-1cm}
+    \Huge \textbf{Smart Budapest Mobility Analytics Platform} \\
+    \vspace{0.3cm}
+    \Large Business Intelligence Project Documentation
+}
+\author{
+    \Large Eneko Alvarez \\
+    \normalsize Budapesti Műszaki és Gazdaságtudományi Egyetem (BME) \\
+    \normalsize Business Intelligence Course -- Academic Year 2024-2025
+}
+\date{\today}
+
+\begin{document}
+
+% Title page
+\maketitle
+\thispagestyle{empty}
+\vspace{1cm}
+
+\begin{abstract}
+This project implements a comprehensive Business Intelligence system for Budapest's public transport network, integrating real-time vehicle tracking data from BKK Futár API with weather conditions from OpenWeatherMap. The system processes over 850 vehicles every 10 minutes, accumulating 2.18 million transport events over 14 days. Using a three-layer ELT architecture with TimescaleDB, Apache Airflow orchestration, and Metabase dashboards, it enables data-driven decision-making for mobility planning and operational efficiency.
+\end{abstract}
+
+\newpage
+
+% Table of contents
+\tableofcontents
+\newpage
+
+% Main content
+\section{Introduction and Objectives}
+
+\subsection{Problem Statement}
+Urban mobility optimization requires data-driven insights to improve public transportation systems. Budapest's extensive BKK network generates vast amounts of real-time data that remains underutilized for strategic decision-making. This project addresses this gap by creating a BI system that correlates transport usage with weather conditions to analyze mobility patterns.
+
+\subsection{Main Goals}
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Decision Support for Mobility Planning}: Provide actionable insights on route performance, vehicle utilization, and temporal patterns to optimize fleet allocation and service frequency.
+    \item \textbf{Tourism and Visitor Intelligence}: Enable understanding of mobility patterns under different weather conditions for tourism planning.
+    \item \textbf{Operational Efficiency}: Automate data collection, transformation, and visualization, reducing analysis time from days to real-time.
+    \item \textbf{Predictive Foundation}: Establish infrastructure supporting future ML initiatives for demand forecasting and anomaly detection.
+\end{enumerate}
+
+\section{Data Sources}
+
+\subsection{BKK Futár API (Real-Time Transport)}
+\textbf{Endpoint}: \texttt{https://futar.bkk.hu/api/query/v1/ws/otp/api/where/vehicles-for-location.json} \\
+\textbf{Frequency}: Every 10 minutes | \textbf{Format}: JSON | \textbf{Volume}: $\sim$850 vehicles/request ($\sim$122K events/day)
+
+\textbf{Key Fields}: \texttt{vehicleId}, \texttt{routeId}, \texttt{tripId}, \texttt{location.lat/lon}, \texttt{bearing}, \texttt{speed}, \texttt{lastUpdateTime}
+
+\subsection{GTFS Static Data}
+\textbf{Source}: BKK GTFS feed (CSV files) | \textbf{Purpose}: Reference data for routes and stops \\
+\textbf{Files}: \texttt{routes.txt}, \texttt{stops.txt}, \texttt{trips.txt}, \texttt{stop\_times.txt} \\
+\textbf{Load Strategy}: One-time initial load, periodic updates
+
+\subsection{OpenWeatherMap API}
+\textbf{Endpoint}: \texttt{https://api.openweathermap.org/data/2.5/weather} \\
+\textbf{Frequency}: Hourly | \textbf{Location}: Budapest (47.4979, 19.0402) | \textbf{Volume}: 24 obs/day (88,244 total) \\
+\textbf{Fields}: Temperature (°C), humidity (\%), wind speed (m/s), weather code, timestamp
+
+\section{Architecture and Data Storage}
+
+\subsection{Three-Layer ELT Architecture}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Staging}: Raw API responses (JSONB) in TimescaleDB hypertables with 7-day retention
+    \item \textbf{Raw}: Cleaned/validated data with 90-180 day retention policies
+    \item \textbf{DWH}: Star schema optimized for analytics with indefinite retention
+\end{itemize}
+
+\subsection{Database: TimescaleDB (PostgreSQL 15)}
+\textbf{Rationale}: Time-series optimizations (automatic partitioning, compression, retention policies, native PostgreSQL compatibility) \\
+\textbf{Schemas}: \texttt{staging}, \texttt{raw}, \texttt{dwh}, \texttt{metadata}
+
+\subsection{Star Schema Design}
+
+\begin{table}[h]
+\small
+\centering
+\caption{Star Schema: Dimensions and Facts}
+\label{tab:star_schema}
+\begin{tabular}{@{}llp{5.5cm}@{}}
+\toprule
+\textbf{Type} & \textbf{Table} & \textbf{Description} \\ \midrule
+Dimension & \texttt{dim\_time} & Hour-level granularity (ts, date, hour, day\_of\_week, is\_weekend) \\
+Dimension & \texttt{dim\_route} & 368 routes (route\_id, route\_name, route\_type, agency\_id) \\
+Dimension & \texttt{dim\_stop} & Stop locations (stop\_id, stop\_name, lat, lon) \\
+Dimension & \texttt{dim\_weather\_type} & Weather codes (weather\_code, description, severity) \\ \midrule
+Fact & \texttt{fact\_transport\_usage} & 2.18M vehicle observations (time\_key, route\_key, vehicle\_id, delay) \\
+Fact & \texttt{fact\_weather\_conditions} & 88K hourly weather (time\_key, weather\_key, temp, humidity, wind) \\
+Fact & \texttt{fact\_route\_performance} & Hourly route aggregations (total\_trips, unique\_vehicles) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\section{ETL/ELT Processes (Airflow)}
+
+All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, error handling, retry logic).
+
+\subsection{Pipeline 1: BKK Real-Time (\texttt{bkk\_realtime\_pipeline})}
+\textbf{Schedule}: Every 10 minutes | \textbf{Start}: Nov 15, 2025
+
+\textbf{Workflow}: (1) \textit{Extract} -- Call BKK API, insert JSON to staging (timeout 15s, HTTP validation). (2) \textit{Transform} -- Populate \texttt{dim\_time}, strip "BKK\_" prefix from route\_id, validate coordinates, deduplicate by vehicle\_id+time\_key. (3) \textit{Load} -- Insert to \texttt{fact\_transport\_usage}, aggregate to \texttt{fact\_route\_performance}, truncate staging.
+
+\textbf{Quality Checks}: Non-null route\_key (default to "UNKNOWN"), coordinate range validation (Budapest bbox), duplicate prevention.
+
+\subsection{Pipeline 2: Weather Hourly (\texttt{weather\_pipeline\_dag})}
+\textbf{Schedule}: Hourly
+
+\textbf{Workflow}: Extract to staging $\rightarrow$ Transform to raw (parse JSON, convert units, validate ranges) $\rightarrow$ Ensure \texttt{dim\_time} $\rightarrow$ Load to \texttt{fact\_weather\_conditions}
+
+\textbf{Quality Checks}: Temperature (-50 to 50°C), humidity (0-100\%), wind (0-50 m/s), timestamp validation.
+
+\subsection{Pipeline 3: Daily KPI (\texttt{kpi\_daily\_dag})}
+\textbf{Schedule}: Daily 1:00 AM
+
+\textbf{Metrics}: \texttt{total\_trips} (COUNT(*)), \texttt{unique\_vehicles} (COUNT DISTINCT), \texttt{avg\_delay} (AVG) \\
+\textbf{Deduplication}: ON CONFLICT DO UPDATE on composite PK (time\_key, route\_key)
+
+\section{Dashboards and KPIs (Metabase)}
+
+\subsection{Dashboard 1: Transport Operations}
+\textbf{Purpose}: Real-time fleet monitoring \\
+\textbf{Visualizations}: Active vehicles (KPI: $\sim$850 peak), active routes (KPI: $\sim$180/day), vehicles by hour (line chart), top 10 routes (bar), route type distribution (pie: majority buses, followed by trams and metro)
+
+\textbf{Key Insights (preliminary, 14-day period)}: (1) Most activity concentrated during morning (7-9 AM) and evening (4-7 PM) rush hours. (2) Trams show higher average speeds than buses, likely due to dedicated lanes. (3) Significant reduction in weekend activity, with peaks shifting to midday hours.
+
+\subsection{Dashboard 2: Usage Patterns}
+\textbf{Visualizations}: Busiest stops (map), monthly comparison, weekly trend, hourly heatmap \\
+\textbf{Insights}: Weekdays account for the majority of transport events; morning peak shows higher activity than evening peak in the observed period.
+
+\subsection{Dashboard 3: Weather Impact}
+\textbf{Visualizations}: Usage vs temperature (dual-axis), weather distribution (pie chart), rain impact comparison, humidity vs temp scatter
+
+\textbf{Key Insights (preliminary)}: (1) Early results suggest minimal weather impact on transport usage, indicating weather-independent commuting patterns. (2) Slight increase in vehicle activity observed during rainy conditions. (3) No strong temperature correlation detected in the observed range. \textit{Note: Limited to 14 days of overlapping weather-transport data; longer collection period needed for robust conclusions.}
+
+\section{Implementation and Infrastructure}
+
+\subsection{Technology Stack}
+\textbf{Core}: Docker Compose, TimescaleDB (PostgreSQL 15), Airflow 2.7, Metabase, Python 3.11 \\
+\textbf{Libraries}: psycopg2 (DB), requests (API), pandas (data), pytest (testing)
+
+\subsection{Deployment}
+\textbf{Prerequisites}: Docker Desktop, 8GB RAM, API keys (BKK, OpenWeatherMap)
+
+\textbf{Setup}: (1) Clone repo, create \texttt{.env} with keys. (2) \texttt{docker-compose up -d}. (3) Auto-init DB schema. (4) Load GTFS: \texttt{python python/extractors/gtfs\_loader.py}. (5) Access: Airflow (localhost:8080), Metabase (localhost:3000), PostgreSQL (localhost:5432).
+
+\textbf{Infrastructure as Code}: All services in \texttt{docker-compose.yml} for reproducibility.
+
+\section{Data Quality and Limitations}
+
+\subsection{Quality Validations}
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Referential Integrity}: FK constraints enforce valid dimension references
+    \item \textbf{Coordinate Validation}: Budapest bounding box (lat: 47.0-48.0, lon: 18.5-19.5)
+    \item \textbf{Temporal Validation}: No future timestamps; weather rejected if $>$2 hours old
+    \item \textbf{Deduplication}: Composite unique constraints (vehicle\_id, time\_key)
+    \item \textbf{Range Checks}: Temp, humidity, wind, bearing within valid ranges
+\end{enumerate}
+
+\subsection{Known Limitations}
+\begin{enumerate}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Stop Key NULL}: BKK API doesn't provide \texttt{stop\_id} for moving vehicles. \textit{Impact}: No stop-level analysis. \textit{Workaround}: Route-level aggregations. \textit{Future}: Geofencing to infer stops from coordinates.
+    
+    \item \textbf{Limited Weather History}: Weather collection started 5 days after transport. \textit{Impact}: Only 14 days overlap for correlation. \textit{Mitigation}: Ongoing collection; target 6-12 months for ML.
+    
+    \item \textbf{Time Granularity Mismatch}: Weather hourly, transport 10-min. \textit{Impact}: Correlation limited to hourly aggregations.
+    
+    \item \textbf{Missing Automated Tests}: Manual validation queries used. \textit{Future}: Pytest suite for extractors, transformers, SQL.
+\end{enumerate}
+
+\section{Conclusions and Future Work}
+
+\subsection{Achievements}
+\begin{itemize}[leftmargin=*, itemsep=0pt]
+    \item \textbf{Automated Collection}: 850+ vehicles/10min, 2.18M events over 14 days, zero manual intervention
+    \item \textbf{Robust ETL}: 3 Airflow pipelines running reliably during collection period, with error handling and retry logic
+    \item \textbf{Star Schema DWH}: Fast interactive queries on millions of rows using TimescaleDB optimizations
+    \item \textbf{Actionable Dashboards}: 3 Metabase dashboards enabling data exploration and preliminary insights
+    \item \textbf{Scalable Architecture}: TimescaleDB hypertables designed to scale to years of historical data
+\end{itemize}
+
+Demonstrates that open APIs combined with modern data engineering tools can deliver functional BI capabilities at minimal cost.
+
+\subsection{Future Work}
+
+\textbf{Short-Term (1-3 months)}: Stop inference via geofencing; alerting/anomaly detection; materialized views for dashboard performance.
+
+\textbf{Medium-Term (3-6 months)}: Accumulate 6-12 months data for seasonal patterns; statistical correlation tests (Pearson, Spearman); multi-city expansion (Vienna, Prague, Berlin).
+
+\textbf{Long-Term (6-12 months)}: ML demand forecasting (ARIMA, Prophet, LSTM); "cursed routes" congestion prediction; real-time streaming (Kafka); public API for third-party developers.
+
+\vspace{0.5cm}
+
+\noindent\textbf{Project Metadata}: Author: Eneko Alvarez | Institution: BME | Course: Business Intelligence | Year: 2024-2025 | Period: Nov 15-29, 2025 (14 days) | Records: 2,179,435 transport + 88,244 weather | Repository: \url{https://github.com/eneko-alvarez/smart-budapest-mobility}
+
+\end{document}
