@@ -28,9 +28,17 @@ with DAG(
     tags=["ml", "predictions"],
 ) as dag:
 
+    # Asegurar que las dependencias ML estén instaladas
+    install_dependencies = BashOperator(
+        task_id="install_dependencies",
+        bash_command="pip install --user --quiet scikit-learn==1.3.2 joblib==1.3.2",
+    )
+
     generate_predictions = BashOperator(
         task_id="generate_predictions",
         bash_command="python /home/airflow/python/ml/predict_transport_demand.py",
         env=common_env,
         execution_timeout=timedelta(minutes=15),
     )
+
+    install_dependencies >> generate_predictions

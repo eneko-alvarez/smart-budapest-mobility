@@ -41,13 +41,13 @@ This project implements a complete data analytics pipeline to process and visual
 │ Data Sources    │   │ Orchestration   │   │ Presentation    │
 ├─────────────────┤   ├─────────────────┤   ├─────────────────┤
 │ BKK Futár API   │──▶│ Apache Airflow  │──▶│ Metabase       │
-│ OpenWeatherMap  │   │ (3 DAGs)        │   │ (Dashboards)    │
+│ OpenWeatherMap  │   │ (4 DAGs)        │   │ (Dashboards)    │
 │ GTFS Static     │   │                 │   │                 │
 └─────────────────┘   └─────────────────┘   └─────────────────┘
                               │
                               ▼
                     ┌─────────────────┐
-                    │ PostgreSQL      │
+                    │ TimescaleDB     │
                     │ Data Warehouse  │
                     │ (Star Schema)   │
                     └─────────────────┘
@@ -71,7 +71,7 @@ This project implements a complete data analytics pipeline to process and visual
 | **Visualization** | Metabase Latest | Business intelligence dashboards |
 | **ETL Language** | Python 3.11 | Data extraction and transformation |
 | **Containerization** | Docker + Docker Compose | Infrastructure as code |
-| **Libraries** | psycopg2, requests, pandas, pytest | Database, API, data processing, and testing |
+| **Libraries** | psycopg2, requests, pandas, scikit-learn, joblib, pytest | Database, API, data processing, ML, and testing |
 
 ---
 
@@ -326,9 +326,29 @@ fact_route_performance
 
 ---
 
+### 4. ML Predictions Pipeline (Preliminary)
+**Schedule:** Daily at 11:30 PM  
+**DAG ID:** `ml_predictions_dag`  
+**Status:** Prototype - limited training data
+
+**Steps:**
+1. **Feature Engineering** (`predict_transport_demand.py`)
+   - Aggregates historical patterns by route, hour, day_of_week
+   - Joins with weather forecast data
+   - Creates features: unique_vehicles, avg_delay, temperature, humidity, wind, temporal attributes
+2. **Prediction**
+   - Loads RandomForest model (trained on 14 days)
+   - Generates next-day demand predictions by route and hour
+   - Stores in `dwh.fact_route_predictions`
+
+**Output:** ~8,000 predictions (368 routes × 24 hours)  
+**Limitation:** Model trained on limited data; requires 6-12 months for production accuracy
+
+---
+
 ## 📈 Dashboards & KPIs
 
-The project includes three comprehensive Metabase dashboards for real-time analytics:
+The project includes four Metabase dashboards with enhanced interactivity:
 
 ### Dashboard 1: Weather Overview 🌤️
 **Purpose:** Monitor Budapest's environmental conditions and trends  
@@ -366,6 +386,10 @@ The project includes three comprehensive Metabase dashboards for real-time analy
 
 **Data Source:** `dwh.fact_transport_usage` joined with `dim_route` and `dim_time`
 
+**Interactivity:** 
+- **Drill-down by Route**: Click on any route in visualizations to filter entire dashboard to that specific route
+- Enables detailed analysis of individual route performance
+
 ---
 
 ### Dashboard 3: Transport-Weather Correlation 🌡️🚌
@@ -384,9 +408,32 @@ The project includes three comprehensive Metabase dashboards for real-time analy
 - Slight increase in vehicle count during adverse weather conditions
 - Weekend patterns show different peak times (10 AM - 8 PM)
 
-**Data Source:** Combined queries from `fact_transport_usage`, `fact_weather_conditions`, and dimension tables
+**Data Source:** Historical aggregations from `fact_transport_usage`, `fact_weather_conditions`, and dimension tables
+
+**Interactivity:**
+- **Global Date Filter**: Apply custom date range across all visualizations for focused period analysis
+- Supports comparing different time periods
 
 **Note:** Correlation analysis is limited by weather data collection period. More historical data will improve insights over time.
+
+---
+
+### Dashboard 4: ML Predictions 🤖 (Experimental)
+**Purpose:** Visualize machine learning demand forecasts  
+**Refresh:** Daily
+
+**Key Visualizations:**
+1. **Predicted vs Actual Trips** - Line chart comparing forecasts with actual demand
+2. **Prediction Accuracy** - MAE, RMSE metrics by route type
+3. **Route-Level Forecasts** - Bar chart showing next-day predictions per route
+4. **Model Performance Trends** - Accuracy evolution over time
+
+**Model Details:**
+- Algorithm: RandomForest Regressor
+- Features: Historical patterns, weather data, temporal attributes
+- Training Data: 14 days (limited)
+
+**Status:** Experimental prototype. Model requires 6-12 months of data for production-grade accuracy. Current predictions serve as proof-of-concept for future ML capabilities.
 
 ---
 

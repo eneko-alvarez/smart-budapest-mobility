@@ -31,14 +31,14 @@
     filecolor=magenta,      
     urlcolor=cyan,
     pdftitle={Smart Budapest Mobility Analytics Platform},
-    pdfauthor={Eneko Alvarez},
+    pdfauthor={Eneko Alvarez Mendia},
 }
 
 % Header and footer
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small Smart Budapest Mobility Analytics Platform}
-\fancyhead[R]{\small BI Project}
+\fancyhead[R]{\small Business Intelligence}
 \fancyfoot[C]{\thepage}
 
 % Title formatting - más compacto
@@ -59,9 +59,10 @@
     \Large Business Intelligence Project Documentation
 }
 \author{
-    \Large Eneko Alvarez \\
+    \Large Eneko Alvarez Mendia \\
+    \normalsize P1JZOP \\
     \normalsize Budapesti Műszaki és Gazdaságtudományi Egyetem (BME) \\
-    \normalsize Business Intelligence Course -- Academic Year 2024-2025
+    \normalsize Academic Year 2024-2025
 }
 \date{\today}
 
@@ -73,7 +74,7 @@
 \vspace{1cm}
 
 \begin{abstract}
-This project implements a comprehensive Business Intelligence system for Budapest's public transport network, integrating real-time vehicle tracking data from BKK Futár API with weather conditions from OpenWeatherMap. The system processes over 850 vehicles every 10 minutes, accumulating 2.18 million transport events over 14 days. Using a three-layer ELT architecture with TimescaleDB, Apache Airflow orchestration, and Metabase dashboards, it enables data-driven decision-making for mobility planning and operational efficiency.
+This project implements a comprehensive Business Intelligence system for Budapest's public transport network, integrating real-time vehicle tracking data from BKK Futár API with weather conditions from OpenWeatherMap. The system processes over 850 vehicles every 10 minutes, accumulating more than 2 million transport events over 20 days. Using a three-layer ELT architecture with TimescaleDB, 4 Airflow pipelines (including preliminary ML predictions), and interactive Metabase dashboards, it enables data-driven decision-making for mobility planning and operational efficiency.
 \end{abstract}
 
 \newpage
@@ -118,8 +119,8 @@ Urban mobility optimization requires data-driven insights to improve public tran
 
 \subsection{Three-Layer ELT Architecture}
 \begin{itemize}[leftmargin=*, itemsep=0pt]
-    \item \textbf{Staging}: Raw API responses (JSONB) in TimescaleDB hypertables with 7-day retention
-    \item \textbf{Raw}: Cleaned/validated data with 90-180 day retention policies
+    \item \textbf{Staging}: Raw API responses (JSONB) in TimescaleDB hypertables; cleared immediately after successful transformation (truncate)
+    \item \textbf{Raw}: Cleaned/validated data with automated TimescaleDB retention policies (90 days for transport, 180 days for weather)
     \item \textbf{DWH}: Star schema optimized for analytics with indefinite retention
 \end{itemize}
 
@@ -141,7 +142,7 @@ Dimension & \texttt{dim\_time} & Hour-level granularity (ts, date, hour, day\_of
 Dimension & \texttt{dim\_route} & 368 routes (route\_id, route\_name, route\_type, agency\_id) \\
 Dimension & \texttt{dim\_stop} & Stop locations (stop\_id, stop\_name, lat, lon) \\
 Dimension & \texttt{dim\_weather\_type} & Weather codes (weather\_code, description, severity) \\ \midrule
-Fact & \texttt{fact\_transport\_usage} & 2.18M vehicle observations (time\_key, route\_key, vehicle\_id, delay) \\
+Fact & \texttt{fact\_transport\_usage} & +2M vehicle observations (time\_key, route\_key, vehicle\_id, delay) \\
 Fact & \texttt{fact\_weather\_conditions} & 88K hourly weather (time\_key, weather\_key, temp, humidity, wind) \\
 Fact & \texttt{fact\_route\_performance} & Hourly route aggregations (total\_trips, unique\_vehicles) \\ \bottomrule
 \end{tabular}
@@ -149,7 +150,7 @@ Fact & \texttt{fact\_route\_performance} & Hourly route aggregations (total\_tri
 
 \section{ETL/ELT Processes (Airflow)}
 
-All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, error handling, retry logic).
+All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, error handling, retry logic). Four production pipelines deployed:
 
 \subsection{Pipeline 1: BKK Real-Time (\texttt{bkk\_realtime\_pipeline})}
 \textbf{Schedule}: Every 10 minutes | \textbf{Start}: Nov 15, 2025
@@ -166,38 +167,57 @@ All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, erro
 \textbf{Quality Checks}: Temperature (-50 to 50°C), humidity (0-100\%), wind (0-50 m/s), timestamp validation.
 
 \subsection{Pipeline 3: Daily KPI (\texttt{kpi\_daily\_dag})}
-\textbf{Schedule}: Daily 1:00 AM
+\textbf{Schedule}: Daily 3:00 AM
 
 \textbf{Metrics}: \texttt{total\_trips} (COUNT(*)), \texttt{unique\_vehicles} (COUNT DISTINCT), \texttt{avg\_delay} (AVG) \\
 \textbf{Deduplication}: ON CONFLICT DO UPDATE on composite PK (time\_key, route\_key)
 
+\subsection{Pipeline 4: ML Predictions (\texttt{ml\_predictions\_dag}) -- Preliminary}
+\textbf{Schedule}: Daily 11:30 PM | \textbf{Status}: Prototype with limited training data
+
+\textbf{Workflow}: Uses RandomForest model to predict next-day transport demand by route and hour. Features: historical patterns (unique vehicles, avg delay), weather forecast, temporal attributes (hour, day\_of\_week). Predictions stored in \texttt{fact\_route\_predictions}.
+
+\textbf{Limitation}: Model trained on 14 days of data only. \textit{Future}: Requires +6 months for production-grade accuracy.
+
 \section{Dashboards and KPIs (Metabase)}
+
+Four interactive dashboards with enhanced filtering and drill-down capabilities.
 
 \subsection{Dashboard 1: Transport Operations}
 \textbf{Purpose}: Real-time fleet monitoring \\
 \textbf{Visualizations}: Active vehicles (KPI: $\sim$850 peak), active routes (KPI: $\sim$180/day), vehicles by hour (line chart), top 10 routes (bar), route type distribution (pie: majority buses, followed by trams and metro)
 
-\textbf{Key Insights (preliminary, 14-day period)}: (1) Most activity concentrated during morning (7-9 AM) and evening (4-7 PM) rush hours. (2) Trams show higher average speeds than buses, likely due to dedicated lanes. (3) Significant reduction in weekend activity, with peaks shifting to midday hours.
+\textbf{Interactivity}: Click on any route from the "Top 10" to drill-down and filter all visualizations to that specific route.
 
-\subsection{Dashboard 2: Usage Patterns}
-\textbf{Visualizations}: Busiest stops (map), monthly comparison, weekly trend, hourly heatmap \\
-\textbf{Insights}: Weekdays account for the majority of transport events; morning peak shows higher activity than evening peak in the observed period.
+\textbf{Key Insights (preliminary, 14-day period)}: (1) Most activity concentrated during morning (7-9 AM) and evening (4-7 PM) rush hours. (2) Significant reduction in weekend activity, with peaks shifting to midday hours.
 
-\subsection{Dashboard 3: Weather Impact}
+\subsection{Dashboard 2: Weather Impact}
 \textbf{Visualizations}: Usage vs temperature (dual-axis), weather distribution (pie chart), rain impact comparison, humidity vs temp scatter
 
-\textbf{Key Insights (preliminary)}: (1) Early results suggest minimal weather impact on transport usage, indicating weather-independent commuting patterns. (2) Slight increase in vehicle activity observed during rainy conditions. (3) No strong temperature correlation detected in the observed range. \textit{Note: Limited to 14 days of overlapping weather-transport data; longer collection period needed for robust conclusions.}
+\textbf{Key Insights (preliminary)}: (1) Early results suggest minimal weather impact on transport usage, indicating weather-independent commuting patterns. (2) Slight increase in vehicle activity observed during rainy conditions. (3) No strong temperature correlation detected in the observed range. \textit{Note: Limited to $\sim$20 days of overlapping weather-transport data; longer collection period needed for robust conclusions.}
+
+\subsection{Dashboard 3: Usage Patterns}
+\textbf{Visualizations}: Busiest stops (map), monthly comparison, weekly trend, hourly heatmap \\
+\textbf{Interactivity}: Global date range filter applies to all visualizations for custom period analysis.
+
+\textbf{Insights}: Weekdays account for the majority of transport events; morning peak shows higher activity than evening peak in the observed period.
+
+\subsection{Dashboard 4: ML Predictions -- Experimental}
+\textbf{Purpose}: Visualize next-day demand forecasts \\
+\textbf{Visualizations}: Predicted vs actual trips (line chart), prediction accuracy metrics, route-level forecast breakdown
+
+\textbf{Status}: Experimental dashboard using RandomForest model. \textit{Predictions based on very limited training data; accuracy improvements require longer historical period.}
 
 \section{Implementation and Infrastructure}
 
 \subsection{Technology Stack}
 \textbf{Core}: Docker Compose, TimescaleDB (PostgreSQL 15), Airflow 2.7, Metabase, Python 3.11 \\
-\textbf{Libraries}: psycopg2 (DB), requests (API), pandas (data), pytest (testing)
+\textbf{Libraries}: psycopg2 (DB), requests (API), pandas (data), scikit-learn (ML), joblib (model serialization), pytest (testing)
 
 \subsection{Deployment}
 \textbf{Prerequisites}: Docker Desktop, 8GB RAM, API keys (BKK, OpenWeatherMap)
 
-\textbf{Setup}: (1) Clone repo, create \texttt{.env} with keys. (2) \texttt{docker-compose up -d}. (3) Auto-init DB schema. (4) Load GTFS: \texttt{python python/extractors/gtfs\_loader.py}. (5) Access: Airflow (localhost:8080), Metabase (localhost:3000), PostgreSQL (localhost:5432).
+\textbf{Setup}: (1) Clone repo, create \texttt{.env} with keys. (2) \texttt{docker-compose up -d}. (3) Auto-init DB schema. (4) Load GTFS: \texttt{python python/extractors/gtfs\_loader.py}. (5) Access: Airflow (localhost:8080), Metabase (localhost:3000).
 
 \textbf{Infrastructure as Code}: All services in \texttt{docker-compose.yml} for reproducibility.
 
@@ -216,7 +236,7 @@ All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, erro
 \begin{enumerate}[leftmargin=*, itemsep=0pt]
     \item \textbf{Stop Key NULL}: BKK API doesn't provide \texttt{stop\_id} for moving vehicles. \textit{Impact}: No stop-level analysis. \textit{Workaround}: Route-level aggregations. \textit{Future}: Geofencing to infer stops from coordinates.
     
-    \item \textbf{Limited Weather History}: Weather collection started 5 days after transport. \textit{Impact}: Only 14 days overlap for correlation. \textit{Mitigation}: Ongoing collection; target 6-12 months for ML.
+    \item \textbf{Limited Weather History}: Weather collection started 5 days after transport. \textit{Impact}: Only 20 days overlap for correlation. \textit{Mitigation}: Ongoing collection; target 6-12 months for ML.
     
     \item \textbf{Time Granularity Mismatch}: Weather hourly, transport 10-min. \textit{Impact}: Correlation limited to hourly aggregations.
     
@@ -227,25 +247,25 @@ All pipelines orchestrated with Apache Airflow 2.7 (scheduling, monitoring, erro
 
 \subsection{Achievements}
 \begin{itemize}[leftmargin=*, itemsep=0pt]
-    \item \textbf{Automated Collection}: 850+ vehicles/10min, 2.18M events over 14 days, zero manual intervention
-    \item \textbf{Robust ETL}: 3 Airflow pipelines running reliably during collection period, with error handling and retry logic
+    \item \textbf{Automated Collection}: 850+ vehicles/10min, 2+ million events over 20 days, zero manual intervention
+    \item \textbf{Robust ETL}: 4 Airflow pipelines running reliably during collection period, with error handling and retry logic
     \item \textbf{Star Schema DWH}: Fast interactive queries on millions of rows using TimescaleDB optimizations
-    \item \textbf{Actionable Dashboards}: 3 Metabase dashboards enabling data exploration and preliminary insights
+    \item \textbf{Actionable Dashboards}: 4 Metabase dashboards enabling data exploration and preliminary insights
     \item \textbf{Scalable Architecture}: TimescaleDB hypertables designed to scale to years of historical data
+    \item \textbf{ML Prototype}: Preliminary demand forecasting model demonstrating future predictive capabilities
 \end{itemize}
 
 Demonstrates that open APIs combined with modern data engineering tools can deliver functional BI capabilities at minimal cost.
 
 \subsection{Future Work}
 
-\textbf{Short-Term (1-3 months)}: Stop inference via geofencing; alerting/anomaly detection; materialized views for dashboard performance.
+\textbf{Short-Term (1-3 months)}: Stop inference via geofencing; alerting/anomaly detection; materialized views for dashboard performance; ML model retraining with more data.
 
-\textbf{Medium-Term (3-6 months)}: Accumulate 6-12 months data for seasonal patterns; statistical correlation tests (Pearson, Spearman); multi-city expansion (Vienna, Prague, Berlin).
-
-\textbf{Long-Term (6-12 months)}: ML demand forecasting (ARIMA, Prophet, LSTM); "cursed routes" congestion prediction; real-time streaming (Kafka); public API for third-party developers.
+\textbf{Medium-Term (3-6 months)}: Accumulate 6-12 months data for seasonal patterns; statistical correlation tests (Pearson, Spearman); multi-city expansion (Vienna, Prague, Berlin); production-grade ML deployment.
 
 \vspace{0.5cm}
 
-\noindent\textbf{Project Metadata}: Author: Eneko Alvarez | Institution: BME | Course: Business Intelligence | Year: 2024-2025 | Period: Nov 15-29, 2025 (14 days) | Records: 2,179,435 transport + 88,244 weather | Repository: \url{https://github.com/eneko-alvarez/smart-budapest-mobility}
+\noindent\textbf{Project Metadata}: Author: Eneko Alvarez | Institution: BME | Course: Business Intelligence | Year: 2024-2025 | Period: Nov - Dec, 2025 ($\sim$30 days) | Records: 2M+ transport, 88K+ weather | Repository: \url{https://github.com/eneko-alvarez/smart-budapest-mobility}
 
 \end{document}
+
